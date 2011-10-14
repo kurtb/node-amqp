@@ -1514,6 +1514,36 @@ Queue.prototype.subscribe = function (/* options, messageListener */) {
 };
 Queue.prototype.subscribeJSON = Queue.prototype.subscribe;
 
+// Cancel a previously registered queue subscription. It probably might be better
+// to just have subscribe return a revoker function but I'm not sure yet how that fits
+// into the overall amqp structure.
+Queue.prototype.cancelSubscribe = function(consumerTag) {
+    var self = this;
+
+    var cancelPromise = this._taskPush(methods.basicCancelOk, function () {
+            self.connection._sendMethod(self.channel, methods.basicCancel, {
+                    consumerTag: consumerTag,
+                    noWait: false
+                });
+        });
+
+    // Create a return promise and then intercept the cancel promise and remove
+    // the listener from the list once the promise resolves. 
+    var promise = new Promise();
+    var consumerTagListeners = this.consumerTagListeners;
+    
+    cancelPromise
+    .addCallback(function() {
+            delete consumerTagListeners[consumerTag];
+            promise.emitSuccess();
+        })
+    .addErrback(function() {
+            delete consumerTagListeners[consumerTag];
+            promise.emitFailure();
+        });
+    
+    return promise;
+};
 
 /* Acknowledges the last message */
 Queue.prototype.shift = function () {
